@@ -61,21 +61,44 @@ async fn handle_request(
     state: Arc<AppState>,
 ) -> Result<Response<Full<Bytes>>, BoxError> {
     match (req.method(), req.uri().path()) {
-        (&Method::POST, "/send") => {
+        (&Method::POST, "/") => {
+            let is_json = req
+                .headers()
+                .get(hyper::header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .map(|ct| ct.starts_with("application/json"))
+                .unwrap_or(false);
+
             let body_bytes = req.collect().await?.to_bytes();
-            let payload: SendRequest = match serde_json::from_slice(&body_bytes) {
-                Ok(p) => p,
-                Err(e) => {
+
+            let message = if is_json {
+                let payload: SendRequest = match serde_json::from_slice(&body_bytes) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        return Ok(Response::builder()
+                            .status(StatusCode::BAD_REQUEST)
+                            .body(Full::new(Bytes::from(format!(
+                                "{{\"error\": \"invalid JSON: {}\"}}",
+                                e
+                            ))))?);
+                    }
+                };
+                payload.message
+            } else {
+                let text = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
+                    format!("invalid UTF-8 in request body: {}", e)
+                })?;
+                if text.is_empty() {
                     return Ok(Response::builder()
                         .status(StatusCode::BAD_REQUEST)
-                        .body(Full::new(Bytes::from(format!(
-                            "{{\"error\": \"invalid JSON: {}\"}}",
-                            e
-                        ))))?);
+                        .body(Full::new(Bytes::from(
+                            "{\"error\": \"empty body\"}",
+                        )))?);
                 }
+                text
             };
 
-            match send_telegram_message(&state, &payload.message).await {
+            match send_telegram_message(&state, &message).await {
                 Ok(()) => Ok(Response::builder()
                     .status(StatusCode::OK)
                     .body(Full::new(Bytes::from("{\"status\": \"sent\"}")))?),
