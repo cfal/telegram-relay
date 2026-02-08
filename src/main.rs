@@ -18,6 +18,8 @@ struct Config {
     telegram_username: String,
     #[serde(default)]
     telegram_chat_id: Option<i64>,
+    #[serde(default)]
+    path_prefix: Option<String>,
 }
 
 #[derive(Clone)]
@@ -25,6 +27,7 @@ struct AppState {
     telegram_token: String,
     chat_id: i64,
     http_client: reqwest::Client,
+    path_prefix: String,
 }
 
 #[derive(Deserialize)]
@@ -33,6 +36,20 @@ struct SendRequest {
 }
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
+
+/// Normalize a path prefix: trim whitespace, strip trailing slashes,
+/// ensure a leading slash. Returns empty string if effectively blank.
+fn normalize_prefix(raw: Option<&str>) -> String {
+    let s = raw.unwrap_or("").trim().trim_end_matches('/');
+    if s.is_empty() || s == "/" {
+        return String::new();
+    }
+    if s.starts_with('/') {
+        s.to_string()
+    } else {
+        format!("/{}", s)
+    }
+}
 
 async fn send_telegram_message(
     state: &AppState,
@@ -67,8 +84,18 @@ async fn handle_request(
     req: Request<hyper::body::Incoming>,
     state: Arc<AppState>,
 ) -> Result<Response<Full<Bytes>>, BoxError> {
-    match (req.method(), req.uri().path()) {
-        (&Method::POST, "/") => {
+    let path = req.uri().path();
+    let sub = match path.strip_prefix(state.path_prefix.as_str()) {
+        Some(s) => s,
+        None => {
+            return Ok(Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .body(Full::new(Bytes::new()))?);
+        }
+    };
+
+    match (req.method(), sub) {
+        (&Method::POST, "/" | "") => {
             let is_json = req
                 .headers()
                 .get(hyper::header::CONTENT_TYPE)
@@ -237,10 +264,16 @@ async fn main() -> Result<(), BoxError> {
         }
     };
 
+    let path_prefix = normalize_prefix(config.path_prefix.as_deref());
+    if !path_prefix.is_empty() {
+        eprintln!("using path prefix: {}", path_prefix);
+    }
+
     let state = Arc::new(AppState {
         telegram_token: config.telegram_bot_token,
         chat_id,
         http_client: client,
+        path_prefix,
     });
 
     let addr: SocketAddr = config.listen_addr.parse()?;
