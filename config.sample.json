@@ -1,0 +1,6 @@
+{
+  "listen_addr": "127.0.0.1:3000",
+  "telegram_bot_token": "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11",
+  "telegram_username": "@your_username",
+  "telegram_chat_id": null
+}
