@@ -34,16 +34,23 @@ struct SendRequest {
 
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
-async fn send_telegram_message(state: &AppState, text: &str) -> Result<(), BoxError> {
+async fn send_telegram_message(
+    state: &AppState,
+    text: &str,
+    parse_mode: Option<&str>,
+) -> Result<(), BoxError> {
     let url = format!(
         "https://api.telegram.org/bot{}/sendMessage",
         state.telegram_token
     );
 
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "chat_id": state.chat_id,
         "text": text,
     });
+    if let Some(mode) = parse_mode {
+        body["parse_mode"] = serde_json::json!(mode);
+    }
 
     let resp = state.http_client.post(&url).json(&body).send().await?;
 
@@ -68,6 +75,17 @@ async fn handle_request(
                 .and_then(|v| v.to_str().ok())
                 .map(|ct| ct.starts_with("application/json"))
                 .unwrap_or(false);
+
+            let parse_mode = req
+                .headers()
+                .get("telegram-parse-mode")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| match v.to_lowercase().as_str() {
+                    "markdown" => Some("MarkdownV2"),
+                    "html" => Some("HTML"),
+                    _ => None,
+                })
+                .map(String::from);
 
             let body_bytes = req.collect().await?.to_bytes();
 
@@ -98,7 +116,7 @@ async fn handle_request(
                 text
             };
 
-            match send_telegram_message(&state, &message).await {
+            match send_telegram_message(&state, &message, parse_mode.as_deref()).await {
                 Ok(()) => Ok(Response::builder()
                     .status(StatusCode::OK)
                     .body(Full::new(Bytes::from("{\"status\": \"sent\"}")))?),
