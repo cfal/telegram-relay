@@ -1,13 +1,15 @@
 # telegram-relay
 
-A lightweight Rust HTTP server that relays messages to Telegram via a bot.
+A lightweight Rust HTTP server that relays messages to Telegram via a bot. Useful as a simple push notification service — point any webhook, CI pipeline, or script at it and get messages straight to your phone.
 
 ## Endpoints
 
-| Method | Path | Body | Description |
-|--------|------|------|-------------|
-| POST | `/send` | `{"message": "..."}` | Send a Telegram message |
-| GET | `/health` | — | Returns `{"status": "ok"}` |
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/` | Send a Telegram message |
+| GET | `/health` | Returns `{"status": "ok"}` |
+
+If `path_prefix` is set in the config (e.g. `"path_prefix": "secret"`), all endpoints move under that prefix: `POST /secret`, `GET /secret/health`.
 
 ## Setup
 
@@ -26,8 +28,37 @@ A lightweight Rust HTTP server that relays messages to Telegram via a bot.
 
 ## Usage
 
+The body is sent directly as the message text. JSON is also supported.
+
 ```bash
-curl -X POST http://127.0.0.1:3000/send \
-  -H "Content-Type: application/json" \
-  -d '{"message": "deploy finished"}'
+# plain text (shortest form)
+curl -d 'deploy finished' http://127.0.0.1:3000
+
+# JSON
+curl -H 'Content-Type: application/json' \
+  -d '{"message": "deploy finished"}' http://127.0.0.1:3000
 ```
+
+### Formatting
+
+Set the `telegram-parse-mode` header to enable Telegram formatting:
+
+```bash
+# MarkdownV2
+curl -H 'telegram-parse-mode: markdown' \
+  -d '*bold* _italic_' http://127.0.0.1:3000
+
+# HTML
+curl -H 'telegram-parse-mode: html' \
+  -d '<b>bold</b> <i>italic</i>' http://127.0.0.1:3000
+```
+
+## Config
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `listen_addr` | yes | Address to bind (e.g. `127.0.0.1:3000`) |
+| `telegram_bot_token` | yes | Bot token from BotFather |
+| `telegram_username` | yes | Telegram username to resolve chat ID for |
+| `telegram_chat_id` | no | Resolved automatically on first run |
+| `path_prefix` | no | Prefix for all routes (e.g. `"secret"` → `/secret`) |
